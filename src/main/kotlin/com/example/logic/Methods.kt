@@ -3,6 +3,7 @@ package com.example.logic
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.example.dao.FLightDetailsDao
+import com.example.dao.PassengerDao
 import com.example.data.response.Output
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -12,6 +13,7 @@ import java.util.*
 import io.ktor.server.config.*
 import io.ktor.server.response.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.select
 
 class Methods {
@@ -53,5 +55,10 @@ class Methods {
             Output("Imposter",HttpStatusCode.Unauthorized.toString())
         }
 
+    }
+
+    fun checkUser(name: String, email: String): Boolean {
+        val data=PassengerDao.select(PassengerDao.name eq name or (PassengerDao.email eq email)).map { RowMapFunctions().resultRowPassenger(it) }
+        return data.isEmpty()
     }
 }

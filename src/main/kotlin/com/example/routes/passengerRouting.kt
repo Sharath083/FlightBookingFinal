@@ -5,6 +5,7 @@ import com.example.data.response.TravelDetails
 import com.example.data.response.TravelTime
 import com.example.data.request.Passenger
 import com.example.data.request.Filter
+import com.example.data.request.FilterBy
 import com.example.data.request.FlightId
 import com.example.data.response.PassengerLogin
 import com.example.exceptions.FilterDoesNotExistException
@@ -20,6 +21,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 
@@ -42,40 +44,14 @@ fun Route.passengerFunctions(passengerRepoImpl: PassengerRepoImpl, methods: Meth
             get("/travelTime") {
                 val principal = call.principal<JWTPrincipal>()
                 val name = principal!!.payload.getClaim("user").asString()
-                val id = passengerRepoImpl.getPassengerId(name)
-                val bookingDetails = id?.let { it1 ->
-                    passengerRepoImpl.getFlightId(it1.id)
-                }
-
                 runBlocking {
-                    val result = bookingDetails?.map { number ->
-                        async {
-                            number?.let { it1 ->
-                                passengerRepoImpl.getFlight(number.flightNumber).map { time ->
-                                    time.let {
-                                        val duration = methods.timeTaken(time.departureTime, time.arrivalTime)
-                                        TravelTime(it1.ticket, "$duration Hours", it1.flightNumber)
-                                    }
-
-                                }
-                            }
-                        }
-                    }
-                    if (!(result.isNullOrEmpty())) {
-                        call.respond(result.awaitAll())
-                    } else {
-                        call.respond("You Has Zero Booked Flights")
+                    launch {
+                        val result = passengerRepoImpl.getTravelTime(name)
+                        call.respond(result)
                     }
                 }
             }
         }
-        get("/allFlights"){
-            val flightList=passengerRepoImpl.getAllFLights().sortedBy { methods.timeTaken(it.departureTime,it.arrivalTime) }
-//            minBy {methods.timeTaken(it.departureTime,it.arrivalTime) }
-
-            call.respond(flightList)
-        }
-
         authenticate {
             post("/bookFlight") {
                 val flightId = call.receive<FlightId>()
@@ -98,13 +74,11 @@ fun Route.passengerFunctions(passengerRepoImpl: PassengerRepoImpl, methods: Meth
                                 number?.let { it1 ->
                                     TravelDetails(it1.ticket, passengerRepoImpl.getFlight(number.flightNumber))
                                 }
-
                             }
                         }
                         call.respond(result.awaitAll())
                     }
                 } else {
-//                    call.respond("$name does not exists")
                     throw UserNotFoundException("$name does not exists")
                 }
             }
@@ -126,9 +100,7 @@ fun Route.passengerFunctions(passengerRepoImpl: PassengerRepoImpl, methods: Meth
         get("/filterSource&Destination"){
             val input=call.receive<Filter>()
             val result=passengerRepoImpl.filterBySourceDestination(input).sortedBy { methods.timeTaken(it.departureTime,it.arrivalTime) }
-
             if(result.isNotEmpty()){
-
                 call.respond(result )
             }
             else{
@@ -137,39 +109,27 @@ fun Route.passengerFunctions(passengerRepoImpl: PassengerRepoImpl, methods: Meth
         }
 
 
-        get("/filterBy/{type}") {
-            val input=call.parameters["type"]?: return@get call.respondText(
-                "Missing id",
-                status = HttpStatusCode.BadRequest
-            )
-
-            val result = passengerRepoImpl.getAllFLights()
-
-            when (input.lowercase()) {
-                "price" -> call.respond(result.sortedBy { it.price })
-                "duration" -> call.respond(result.sortedBy {
-                    methods.timeTaken(it.departureTime, it.arrivalTime) })
-                else-> throw FilterDoesNotExistException()
-            }
-
+        get("/filterBy") {
+            val input=call.receive<FilterBy>()
+            val result = passengerRepoImpl.getFLightsByFilter(input)
+            call.respond(result)
         }
-        authenticate {
-
-            delete("/deleteAccount") {
-                val principal = call.principal<JWTPrincipal>()
-                val name = principal!!.payload.getClaim("user").asString()
-                val details = passengerRepoImpl.getPassengerId(name)
-                if(details!=null) {
-                    passengerRepoImpl.removeUser(details.id)
-                    call.respond("$name Account Is Deleted")
-
-                }
-                else {
-                    throw UserNotFoundException("$name Does Not Have Account")
-                }
-
-            }
-        }
+//        authenticate {
+//            delete("/deleteAccount") {
+//                val principal = call.principal<JWTPrincipal>()
+//                val name = principal!!.payload.getClaim("user").asString()
+//                val details = passengerRepoImpl.getPassengerId(name)
+//                if(details!=null) {
+//                    passengerRepoImpl.removeUser(details.id)
+//                    call.respond("$name Account Is Deleted")
+//
+//                }
+//                else {
+//                    throw UserNotFoundException("$name Does Not Have Account")
+//                }
+//
+//            }
+//        }
         authenticate {
             delete("cancelFlight/{id}") {
                 val flightNumber=call.parameters["id"]?: return@delete call.respondText(
@@ -193,7 +153,6 @@ fun Route.passengerFunctions(passengerRepoImpl: PassengerRepoImpl, methods: Meth
                 }
             }
         }
-
     }
 }
 
